@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import re
 from typing import List
@@ -91,6 +92,8 @@ def apply_upgrades_and_create_pr(repo_url: str, plan: List[UpgradePlanItem], git
     except Exception as e:
         print(f"Error executing upgrade and PR: {e}")
         raise e
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 def _update_requirements_file(filepath: str, plan: List[UpgradePlanItem]):
     with open(filepath, "r") as f:

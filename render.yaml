@@ -1,0 +1,22 @@
+# Render Blueprint for the Nexus backend: https://render.com/docs/blueprint-spec
+# The frontend deploys separately on Vercel (see README).
+services:
+  - type: web
+    name: nexus-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.15
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ALLOWED_ORIGIN_REGEX
+        sync: false

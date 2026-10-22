@@ -12,14 +12,24 @@ from core.changelog import fetch_release_notes
 from ai.planner import generate_upgrade_plan
 from core.github_upgrader import apply_upgrades_and_create_pr
 
+import os
+
 app = FastAPI(title="Nexus API", description="Automated dependency upgrades using AI")
+
+# Comma-separated list of frontend URLs allowed to call the API, e.g. "https://nexus.vercel.app"
+allowed_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins,
+    # Optional regex for Vercel preview deployments, e.g. "https://nexus-.*\.vercel\.app"
+    allow_origin_regex=os.getenv("ALLOWED_ORIGIN_REGEX") or None,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 @app.get("/")

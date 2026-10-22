@@ -1,6 +1,7 @@
 import os
 import tempfile
 import re
+from concurrent.futures import ThreadPoolExecutor
 import requests
 from git import Repo
 from api.models import DependencyInfo
@@ -124,25 +125,25 @@ def _mark_outdated(dep: DependencyInfo, latest: str):
         # Unpinned or unparseable spec, so we can't tell what's installed
         dep.is_outdated = True
 
+def _lookup(dep: DependencyInfo, get_info) -> DependencyInfo:
+    latest, dep.source_repo = get_info(dep.name)
+    if latest:
+        _mark_outdated(dep, latest)
+    return dep
+
 def analyze_repo(repo_dir: str) -> list[DependencyInfo]:
-    all_deps = []
+    jobs = []
 
     # Check for requirements.txt
     req_file = os.path.join(repo_dir, "requirements.txt")
     if os.path.exists(req_file):
-        for dep in parse_requirements_txt(req_file):
-            latest, dep.source_repo = get_pypi_info(dep.name)
-            if latest:
-                _mark_outdated(dep, latest)
-            all_deps.append(dep)
+        jobs += [(dep, get_pypi_info) for dep in parse_requirements_txt(req_file)]
 
     # Check for package.json
     pkg_file = os.path.join(repo_dir, "package.json")
     if os.path.exists(pkg_file):
-        for dep in parse_package_json(pkg_file):
-            latest, dep.source_repo = get_npm_info(dep.name)
-            if latest:
-                _mark_outdated(dep, latest)
-            all_deps.append(dep)
+        jobs += [(dep, get_npm_info) for dep in parse_package_json(pkg_file)]
 
-    return all_deps
+    # Registry lookups are network-bound, so run them in parallel
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        return list(pool.map(lambda job: _lookup(*job), jobs))

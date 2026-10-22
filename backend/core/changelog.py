@@ -1,3 +1,4 @@
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -89,7 +90,9 @@ def _fetch_notes(dep: DependencyInfo, github_token: str) -> tuple:
 
 def fetch_release_notes(dependencies: list[DependencyInfo], github_token: str = None) -> dict:
     """Returns {dependency name: (notes text, source label)} for outdated deps with a GitHub source."""
-    targets = [dep for dep in dependencies if dep.is_outdated and dep.source_repo]
+    # Fall back to the server's token so hosted scans don't share the 60/hour anonymous limit
+    github_token = github_token or os.getenv("GITHUB_TOKEN")
+    targets =[dep for dep in dependencies if dep.is_outdated and dep.source_repo]
     # Vulnerable packages first, then ones the code actually imports
     targets.sort(key=lambda dep: (not dep.vulnerabilities, not dep.usages))
     targets = targets[:MAX_DEPS]

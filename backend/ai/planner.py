@@ -1,5 +1,6 @@
 import os
 import json
+from concurrent.futures import ThreadPoolExecutor
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from api.models import DependencyInfo, UpgradePlanItem
@@ -52,15 +53,8 @@ def _sort_key(item: UpgradePlanItem):
     worst_severity = min((SEVERITY_RANK.get((v.severity or "").upper(), 4) for v in item.vulnerabilities), default=5)
     return (not item.security_fix, worst_severity, item.from_version == item.to_version, item.dependency.lower())
 
-def generate_upgrade_plan(dependencies: list[DependencyInfo], release_notes: dict = None) -> list[UpgradePlanItem]:
-    if not dependencies:
-        return []
-    release_notes = release_notes or {}
-
-    deps_text = "\n\n".join(_describe_dependency(dep, release_notes.get(dep.name)) for dep in dependencies)
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an expert AI software architect. For each dependency you are given its version jump, known vulnerabilities, the exact places this repository imports it, and the upstream release notes when available.
+PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are an expert AI software architect. For each dependency you are given its version jump, known vulnerabilities, the exact places this repository imports it, and the upstream release notes when available.
 Generate an evaluation and upgrade plan for EACH dependency.
 
 Rules:
@@ -92,33 +86,61 @@ Example:
     "affected_locations": ["app/models.py:3"]
   }}
 ]"""),
-        ("human", "Here are the dependencies:\n\n{deps_text}")
-    ])
+    ("human", "Here are the dependencies:\n\n{deps_text}")
+])
 
-    chain = prompt | llm
+# Small batches run in parallel, which is much faster than one huge response
+BATCH_SIZE = 8
+MAX_PARALLEL_CALLS = 4
 
-    ai_items = {}
+def _ask_ai(batch: list[DependencyInfo], release_notes: dict) -> dict:
+    deps_text = "\n\n".join(_describe_dependency(dep, release_notes.get(dep.name)) for dep in batch)
     try:
-        response = chain.invoke({"deps_text": deps_text})
+        response = (PROMPT | llm).invoke({"deps_text": deps_text})
 
         content = response.content
         clean_content = content.replace("```json", "").replace("```", "").strip()
-        for item in json.loads(clean_content):
-            ai_items[str(item.get("dependency", "")).lower()] = item
+        return {str(item.get("dependency", "")).lower(): item for item in json.loads(clean_content)}
     except Exception as e:
-        print(f"Error generating plan: {e}")
+        print(f"Error generating plan for {[dep.name for dep in batch]}: {e}")
+        return {}
+
+def generate_upgrade_plan(dependencies: list[DependencyInfo], release_notes: dict = None) -> list[UpgradePlanItem]:
+    if not dependencies:
+        return []
+    release_notes = release_notes or {}
+
+    # Up-to-date packages need no AI review
+    outdated = [dep for dep in dependencies if dep.is_outdated]
+    batches = [outdated[i:i + BATCH_SIZE] for i in range(0, len(outdated), BATCH_SIZE)]
+    ai_items = {}
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_CALLS) as pool:
+        for result in pool.map(lambda batch: _ask_ai(batch, release_notes), batches):
+            ai_items.update(result)
 
     plan_items = []
     for dep in dependencies:
         notes = release_notes.get(dep.name)
         real_locations = {f"{u.file}:{u.line}" for u in dep.usages}
         ai_item = ai_items.get(dep.name.lower())
+        # Never target a version below the current one (npm "latest" can lag behind a newer major)
+        to_version = (dep.latest_version or dep.current_version) if dep.is_outdated else dep.current_version
 
-        if ai_item:
+        if not dep.is_outdated:
             item = UpgradePlanItem(
                 dependency=dep.name,
                 from_version=dep.current_version,
-                to_version=dep.latest_version or dep.current_version,
+                to_version=to_version,
+                breaking_changes="None",
+                risk_level="None",
+                recommended=False,
+                reasoning="Already on the latest version.",
+            )
+        elif ai_item:
+            item = UpgradePlanItem(
+                dependency=dep.name,
+                from_version=dep.current_version,
+                to_version=to_version,
                 breaking_changes=str(ai_item.get("breaking_changes", "")),
                 risk_level=str(ai_item.get("risk_level", "Unknown")),
                 recommended=bool(ai_item.get("recommended", False)),
@@ -130,7 +152,7 @@ Example:
             item = UpgradePlanItem(
                 dependency=dep.name,
                 from_version=dep.current_version,
-                to_version=dep.latest_version or dep.current_version,
+                to_version=to_version,
                 breaking_changes="AI failed to generate details",
                 risk_level="Unknown",
                 recommended=False,
