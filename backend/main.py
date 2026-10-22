@@ -4,7 +4,11 @@ import dotenv
 
 dotenv.load_dotenv(override=True)
 from api.models import AnalyzeRequest, AnalyzeResponse, UpgradeRequest, UpgradeResponse
-from core.repo_analyzer import analyze_repo
+import shutil
+from core.repo_analyzer import clone_repository, analyze_repo
+from core.usage_finder import find_usages
+from core.security import check_vulnerabilities
+from core.changelog import fetch_release_notes
 from ai.planner import generate_upgrade_plan
 from core.github_upgrader import apply_upgrades_and_create_pr
 
@@ -25,11 +29,20 @@ def read_root():
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 def analyze_repository(request: AnalyzeRequest):
     try:
-        # 1. Clone & Analyze Repo
-        dependencies = analyze_repo(request.repo_url, request.github_token)
-        
-        # 2. Get Upgrade Plan
-        upgrade_plan = generate_upgrade_plan(dependencies)
+        # 1. Clone, analyze the manifests and find where each package is imported
+        repo_dir = clone_repository(request.repo_url, request.github_token)
+        try:
+            dependencies = analyze_repo(repo_dir)
+            find_usages(repo_dir, dependencies)
+        finally:
+            shutil.rmtree(repo_dir, ignore_errors=True)
+
+        # 2. Check for known vulnerabilities and pull upstream release notes
+        check_vulnerabilities(dependencies)
+        release_notes = fetch_release_notes(dependencies, request.github_token)
+
+        # 3. Get Upgrade Plan
+        upgrade_plan = generate_upgrade_plan(dependencies, release_notes)
         
         return AnalyzeResponse(
             repo_url=request.repo_url,

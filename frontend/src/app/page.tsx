@@ -158,7 +158,7 @@ export default function Home() {
         {result && (
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
             {/* Top Stat Cards */}
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid gap-6 md:grid-cols-3">
               <div className="bg-slate-900/60 backdrop-blur-lg border border-slate-700/50 p-8 rounded-3xl flex flex-col justify-center transition-all hover:border-slate-600 shadow-lg">
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">Packages Scanned</h3>
                 <div className="flex items-baseline space-x-3">
@@ -173,6 +173,17 @@ export default function Home() {
                     {result.dependencies.filter((d: any) => d.is_outdated).length}
                   </p>
                   <span className="text-slate-500 font-medium pt-2">require attention</span>
+                </div>
+              </div>
+              <div className="bg-slate-900/60 backdrop-blur-lg border border-slate-700/50 p-8 rounded-3xl flex flex-col justify-center transition-all hover:border-amber-500/30 shadow-lg group">
+                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2 group-hover:text-amber-400 transition-colors">Known Vulnerabilities</h3>
+                <div className="flex items-baseline space-x-3">
+                  <p className="text-6xl font-black text-amber-400 drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+                    {result.dependencies.reduce((total: number, d: any) => total + (d.vulnerabilities?.length || 0), 0)}
+                  </p>
+                  <span className="text-slate-500 font-medium pt-2">
+                    in {result.dependencies.filter((d: any) => d.vulnerabilities?.length).length} packages
+                  </span>
                 </div>
               </div>
             </div>
@@ -220,6 +231,12 @@ export default function Home() {
                               </div>
                             </div>
                           </label>
+                          <div className="flex items-center gap-3">
+                          {item.security_fix && (
+                            <span className="px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-400">
+                              Security Fix
+                            </span>
+                          )}
                           <span className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl border ${item.risk_level === 'High' ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 shadow-[0_0_15px_rgba(251,113,133,0.15)]' :
                             item.risk_level === 'Medium' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.15)]' :
                               item.risk_level === 'None' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' :
@@ -227,7 +244,26 @@ export default function Home() {
                             }`}>
                             {item.risk_level} Risk
                           </span>
+                          </div>
                         </div>
+                        {item.vulnerabilities?.length > 0 && (
+                          <div className="mt-6 p-5 rounded-xl border bg-amber-500/5 border-amber-500/20">
+                            <h5 className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                              {item.vulnerabilities.length} Known {item.vulnerabilities.length === 1 ? 'Vulnerability' : 'Vulnerabilities'}
+                            </h5>
+                            <ul className="space-y-2">
+                              {item.vulnerabilities.map((vuln: any) => (
+                                <li key={vuln.id} className="text-sm text-slate-300 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                                  <a href={vuln.url} target="_blank" rel="noopener noreferrer" className="font-mono text-amber-300 hover:text-amber-200 underline underline-offset-2">{vuln.id}</a>
+                                  {vuln.severity && <span className="text-xs font-bold uppercase text-slate-400">{vuln.severity}</span>}
+                                  <span className="opacity-90">{vuln.summary}</span>
+                                  {vuln.fixed_in && <span className="text-xs text-emerald-400 font-mono">fixed in {vuln.fixed_in}</span>}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                         <div className="grid md:grid-cols-2 gap-5 mt-6 border-t border-slate-800/50 pt-6">
                           <div className={`p-5 rounded-xl border transition-colors ${isSelected ? 'bg-[#0d1425]/80 border-cyan-900/30' : 'bg-slate-950/40 border-slate-800/50'}`}>
                             <h5 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -235,6 +271,11 @@ export default function Home() {
                               AI Assessment
                             </h5>
                             <p className="text-sm text-slate-300 leading-relaxed opacity-90">{item.reasoning}</p>
+                            <p className="text-xs text-slate-500 mt-3">
+                              {item.notes_source
+                                ? `Based on ${item.notes_source}`
+                                : 'No release notes found, so this assessment is less reliable'}
+                            </p>
                           </div>
                           <div className={`p-5 rounded-xl border transition-colors ${isSelected ? 'bg-[#0d1425]/80 border-cyan-900/30' : 'bg-slate-950/40 border-slate-800/50'}`}>
                             <h5 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -242,6 +283,16 @@ export default function Home() {
                               Breaking Changes
                             </h5>
                             <p className="text-sm text-slate-300 leading-relaxed opacity-90">{item.breaking_changes}</p>
+                            {item.affected_locations?.length > 0 && (
+                              <div className="mt-4">
+                                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Affected Code</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {item.affected_locations.map((loc: string) => (
+                                    <code key={loc} className="text-xs font-mono text-cyan-300 bg-slate-950 px-2 py-1 rounded border border-slate-800">{loc}</code>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
