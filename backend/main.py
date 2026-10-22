@@ -1,11 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from concurrent.futures import ThreadPoolExecutor
+import json
+import queue
 import dotenv
 
 dotenv.load_dotenv(override=True)
 from api.models import AnalyzeRequest, AnalyzeResponse, UpgradeRequest, UpgradeResponse
 import shutil
-from core.repo_analyzer import clone_repository, analyze_repo
+from core.repo_analyzer import clone_repository, find_dependencies, lookup_latest_versions
 from core.usage_finder import find_usages
 from core.security import check_vulnerabilities
 from core.changelog import fetch_release_notes
@@ -36,31 +40,98 @@ app.add_middleware(
 def read_root():
     return {"message": "Welcome to Nexus API"}
 
+def _plural(count: int, word: str) -> str:
+    if count == 1:
+        return f"{count} {word}"
+    return f"{count} {word[:-1]}ies" if word.endswith("y") else f"{count} {word}s"
+
+def run_analysis(request: AnalyzeRequest):
+    """
+    Runs the full analysis, yielding progress events as dicts:
+      {"type": "stage", "id": ..., "status": "active" | "done", "detail": ...}
+      {"type": "result", "data": AnalyzeResponse}
+    """
+    def stage(stage_id: str, status: str = "active", detail: str = None):
+        return {"type": "stage", "id": stage_id, "status": status, "detail": detail}
+
+    # 1. Clone, read the manifests and find where each package is imported
+    yield stage("clone")
+    repo_dir = clone_repository(request.repo_url, request.github_token)
+    try:
+        yield stage("clone", "done")
+
+        yield stage("manifests")
+        dependencies = find_dependencies(repo_dir)
+        files = sorted({dep.file_path for dep in dependencies})
+        yield stage("manifests", "done", f"{_plural(len(dependencies), 'package')} in {', '.join(files)}" if files else "No requirements.txt or package.json found")
+
+        yield stage("usage")
+        find_usages(repo_dir, dependencies)
+        used = [dep for dep in dependencies if dep.usages]
+        yield stage("usage", "done", f"{_plural(len(used), 'package')} imported in {_plural(sum(len(dep.usages) for dep in used), 'place')}")
+    finally:
+        shutil.rmtree(repo_dir, ignore_errors=True)
+
+    # 2. Look up latest versions, known vulnerabilities and upstream release notes
+    yield stage("registry")
+    lookup_latest_versions(dependencies)
+    yield stage("registry", "done", f"{sum(dep.is_outdated for dep in dependencies)} of {len(dependencies)} outdated")
+
+    yield stage("security")
+    check_vulnerabilities(dependencies)
+    vulnerable = [dep for dep in dependencies if dep.vulnerabilities]
+    yield stage("security", "done", f"{_plural(sum(len(dep.vulnerabilities) for dep in vulnerable), 'advisory')} in {_plural(len(vulnerable), 'package')}")
+
+    yield stage("notes")
+    release_notes = fetch_release_notes(dependencies, request.github_token)
+    yield stage("notes", "done", f"Found notes for {_plural(len(release_notes), 'package')}")
+
+    # 3. Review the upgrades with the AI, reporting each finished batch
+    yield stage("ai")
+    progress = queue.Queue()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(generate_upgrade_plan, dependencies, release_notes, lambda done, total: progress.put((done, total)))
+        while not future.done() or not progress.empty():
+            try:
+                done, total = progress.get(timeout=1)
+                yield stage("ai", "active", f"Reviewed batch {done} of {total}")
+            except queue.Empty:
+                continue
+        upgrade_plan = future.result()
+    yield stage("ai", "done", f"{_plural(sum(item.from_version != item.to_version for item in upgrade_plan), 'upgrade')} assessed")
+
+    yield {
+        "type": "result",
+        "data": AnalyzeResponse(repo_url=request.repo_url, dependencies=dependencies, upgrade_plan=upgrade_plan),
+    }
+
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 def analyze_repository(request: AnalyzeRequest):
     try:
-        # 1. Clone, analyze the manifests and find where each package is imported
-        repo_dir = clone_repository(request.repo_url, request.github_token)
-        try:
-            dependencies = analyze_repo(repo_dir)
-            find_usages(repo_dir, dependencies)
-        finally:
-            shutil.rmtree(repo_dir, ignore_errors=True)
-
-        # 2. Check for known vulnerabilities and pull upstream release notes
-        check_vulnerabilities(dependencies)
-        release_notes = fetch_release_notes(dependencies, request.github_token)
-
-        # 3. Get Upgrade Plan
-        upgrade_plan = generate_upgrade_plan(dependencies, release_notes)
-        
-        return AnalyzeResponse(
-            repo_url=request.repo_url,
-            dependencies=dependencies,
-            upgrade_plan=upgrade_plan
-        )
+        for event in run_analysis(request):
+            if event["type"] == "result":
+                return event["data"]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/analyze/stream")
+def analyze_repository_stream(request: AnalyzeRequest):
+    """Same as /api/analyze, but streams progress as Server-Sent Events."""
+    def events():
+        try:
+            for event in run_analysis(request):
+                if event["type"] == "result":
+                    event = {"type": "result", "data": event["data"].model_dump()}
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        # Stop proxies from buffering the stream
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @app.post("/api/upgrade", response_model=UpgradeResponse)
 def upgrade_repository(request: UpgradeRequest):

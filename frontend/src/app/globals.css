@@ -8,6 +8,7 @@
   --line: #e4e4e7;
   --primary: #18181b;
   --primary-fg: #ffffff;
+  --accent: #4f46e5;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,6 +20,7 @@
     --line: #26262a;
     --primary: #ededef;
     --primary-fg: #0b0b0c;
+    --accent: #8b8cf8;
   }
 }
 
@@ -30,11 +32,48 @@
   --color-line: var(--line);
   --color-primary: var(--primary);
   --color-primary-fg: var(--primary-fg);
+  --color-accent: var(--accent);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --animate-fade-in: fade-in 0.3s ease-out both;
+  --animate-fade-in-up: fade-in-up 0.35s ease-out both;
+  --animate-slide-in-right: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pop: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+  }
+  @keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(6px); }
+  }
+  @keyframes slide-in-right {
+    from { transform: translateX(100%); }
+  }
+  @keyframes pop {
+    from { transform: scale(0.6); opacity: 0; }
+  }
 }
 
 body {
   background-color: var(--bg);
   color: var(--fg);
+}
+
+/* Faint grid behind the hero, fading out towards the edges */
+.hero-grid {
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 30%, transparent 75%);
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

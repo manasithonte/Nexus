@@ -20,6 +20,7 @@ class UsageLocation(BaseModel):
 class DependencyInfo(BaseModel):
     name: str
     current_version: str
+    declared: str = ""  # the spec exactly as written, e.g. ">=2.20.0" or "^4.17.15"
     latest_version: Optional[str] = None
     is_outdated: bool = False
     file_path: str

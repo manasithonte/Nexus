@@ -1,6 +1,7 @@
 import os
 import json
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from api.models import DependencyInfo, UpgradePlanItem
@@ -105,7 +106,12 @@ def _ask_ai(batch: list[DependencyInfo], release_notes: dict) -> dict:
         print(f"Error generating plan for {[dep.name for dep in batch]}: {e}")
         return {}
 
-def generate_upgrade_plan(dependencies: list[DependencyInfo], release_notes: dict = None) -> list[UpgradePlanItem]:
+def generate_upgrade_plan(
+    dependencies: list[DependencyInfo],
+    release_notes: dict = None,
+    on_progress: Callable[[int, int], None] = None,
+) -> list[UpgradePlanItem]:
+    """on_progress(batches_done, batches_total) is called as each AI batch finishes."""
     if not dependencies:
         return []
     release_notes = release_notes or {}
@@ -115,8 +121,11 @@ def generate_upgrade_plan(dependencies: list[DependencyInfo], release_notes: dic
     batches = [outdated[i:i + BATCH_SIZE] for i in range(0, len(outdated), BATCH_SIZE)]
     ai_items = {}
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_CALLS) as pool:
-        for result in pool.map(lambda batch: _ask_ai(batch, release_notes), batches):
-            ai_items.update(result)
+        futures = [pool.submit(_ask_ai, batch, release_notes) for batch in batches]
+        for done, future in enumerate(as_completed(futures), start=1):
+            ai_items.update(future.result())
+            if on_progress:
+                on_progress(done, len(batches))
 
     plan_items = []
     for dep in dependencies:

@@ -101,6 +101,7 @@ def parse_requirements_txt(file_path: str) -> list[DependencyInfo]:
                 deps.append(DependencyInfo(
                     name=name,
                     current_version=current_version,
+                    declared=f"{operator}{version.strip()}" if operator and version else "",
                     file_path=os.path.basename(file_path)
                 ))
     return deps
@@ -119,6 +120,7 @@ def parse_package_json(file_path: str) -> list[DependencyInfo]:
                 deps.append(DependencyInfo(
                     name=name,
                     current_version=version,
+                    declared=version,
                     file_path=os.path.basename(file_path)
                 ))
     except Exception:
@@ -134,25 +136,33 @@ def _mark_outdated(dep: DependencyInfo, latest: str):
         # Unpinned or unparseable spec, so we can't tell what's installed
         dep.is_outdated = True
 
-def _lookup(dep: DependencyInfo, get_info) -> DependencyInfo:
-    latest, dep.source_repo = get_info(dep.name)
+REGISTRY_LOOKUPS = {
+    "requirements.txt": get_pypi_info,
+    "package.json": get_npm_info,
+}
+
+def _lookup(dep: DependencyInfo) -> DependencyInfo:
+    latest, dep.source_repo = REGISTRY_LOOKUPS[dep.file_path](dep.name)
     if latest:
         _mark_outdated(dep, latest)
     return dep
 
-def analyze_repo(repo_dir: str) -> list[DependencyInfo]:
-    jobs = []
+def find_dependencies(repo_dir: str) -> list[DependencyInfo]:
+    deps = []
 
     # Check for requirements.txt
     req_file = os.path.join(repo_dir, "requirements.txt")
     if os.path.exists(req_file):
-        jobs += [(dep, get_pypi_info) for dep in parse_requirements_txt(req_file)]
+        deps += parse_requirements_txt(req_file)
 
     # Check for package.json
     pkg_file = os.path.join(repo_dir, "package.json")
     if os.path.exists(pkg_file):
-        jobs += [(dep, get_npm_info) for dep in parse_package_json(pkg_file)]
+        deps += parse_package_json(pkg_file)
 
+    return deps
+
+def lookup_latest_versions(dependencies: list[DependencyInfo]):
     # Registry lookups are network-bound, so run them in parallel
     with ThreadPoolExecutor(max_workers=10) as pool:
-        return list(pool.map(lambda job: _lookup(*job), jobs))
+        list(pool.map(_lookup, dependencies))
