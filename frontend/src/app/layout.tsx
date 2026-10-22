@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Nexus | Agentic Auto-Patcher",
-  description: "Automated dependency upgrades and GitHub PRs powered by Agentic AI.",
+  title: "Nexus · Dependency upgrades",
+  description: "Check dependencies for vulnerabilities and breaking changes, then open a pull request with the upgrades you approve.",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
         {children}
       </body>

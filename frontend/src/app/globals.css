@@ -1,32 +1,40 @@
 @import "tailwindcss";
-@plugin "tailwindcss-animate";
 
 :root {
-  --background: #0f172a;
-  --foreground: #f8fafc;
-  --card: #1e293b;
-  --card-foreground: #f8fafc;
-  --primary: #3b82f6;
-  --primary-foreground: #ffffff;
-  --secondary: #334155;
-  --secondary-foreground: #f8fafc;
-  --accent: #8b5cf6;
-  --accent-foreground: #ffffff;
-  --border: #334155;
-  --input: #1e293b;
-  --ring: #3b82f6;
+  --bg: #ffffff;
+  --surface: #f7f7f8;
+  --fg: #18181b;
+  --muted: #6b6b76;
+  --line: #e4e4e7;
+  --primary: #18181b;
+  --primary-fg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b0c;
+    --surface: #141416;
+    --fg: #ededef;
+    --muted: #9b9ba5;
+    --line: #26262a;
+    --primary: #ededef;
+    --primary-fg: #0b0b0c;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-.glass-panel {
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.75rem;
+  background-color: var(--bg);
+  color: var(--fg);
 }

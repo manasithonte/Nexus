@@ -32,11 +32,20 @@ def _find_github_repo(urls: list) -> str:
             return f"{match.group(1)}/{match.group(2)}"
     return None
 
+def _get_with_retry(url: str, attempts: int = 2) -> requests.Response:
+    # Registry calls run in parallel and occasionally time out on small servers, so retry once
+    for attempt in range(attempts):
+        try:
+            return requests.get(url, timeout=10)
+        except requests.RequestException:
+            if attempt == attempts - 1:
+                raise
+
 def get_pypi_info(package_name: str) -> tuple:
     """Returns (latest_version, "owner/repo" source on GitHub)."""
     try:
         url = f"https://pypi.org/pypi/{package_name}/json"
-        response = requests.get(url, timeout=5)
+        response = _get_with_retry(url)
         if response.status_code == 200:
             info = response.json().get("info", {})
             project_urls = info.get("project_urls") or {}
@@ -54,7 +63,7 @@ def get_npm_info(package_name: str) -> tuple:
     """Returns (latest_version, "owner/repo" source on GitHub)."""
     try:
         url = f"https://registry.npmjs.org/{package_name}"
-        response = requests.get(url, timeout=5)
+        response = _get_with_retry(url)
         if response.status_code == 200:
             data = response.json()
             repository = data.get("repository")
