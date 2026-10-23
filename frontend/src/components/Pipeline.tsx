@@ -5,7 +5,7 @@ import { Icon, Spinner } from "./ui";
 
 export const STAGES: { id: StageId; label: string; idle: string }[] = [
   { id: "clone", label: "Clone repository", idle: "Shallow copy of the default branch" },
-  { id: "manifests", label: "Read manifests", idle: "requirements.txt and package.json" },
+  { id: "manifests", label: "Read manifests", idle: "requirements, pyproject.toml and package.json" },
   { id: "usage", label: "Find imports", idle: "Every place your code uses each package" },
   { id: "registry", label: "Check latest versions", idle: "PyPI and npm registries" },
   { id: "security", label: "Scan for vulnerabilities", idle: "OSV.dev advisory database" },

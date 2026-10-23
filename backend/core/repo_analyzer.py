@@ -6,6 +6,7 @@ import requests
 from git import Repo
 from api.models import DependencyInfo
 from core.versions import parse_version
+from core.pyproject import parse_pyproject
 
 GITHUB_REPO_RE = re.compile(r"github\.com[/:]([\w.-]+)/([\w.-]+?)(?:\.git)?(?:[/#?]|$)")
 
@@ -73,14 +74,14 @@ def get_npm_info(package_name: str) -> tuple:
         pass
     return None, None
 
-def parse_requirements_txt(file_path: str) -> list[DependencyInfo]:
+def parse_requirements_txt(file_path: str, rel_path: str) -> list[DependencyInfo]:
     deps = []
-    # Using utf-8 or errors='ignore' to handle potential BOM like
+    # Using utf-8 or errors='ignore' to handle potential BOM like \ufeff
     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             # Remove BOM if present
-            if line.startswith('﻿'):
+            if line.startswith('\ufeff'):
                 line = line[1:]
 
             if not line or line.startswith("#"):
@@ -102,11 +103,12 @@ def parse_requirements_txt(file_path: str) -> list[DependencyInfo]:
                     name=name,
                     current_version=current_version,
                     declared=f"{operator}{version.strip()}" if operator and version else "",
-                    file_path=os.path.basename(file_path)
+                    file_path=rel_path,
+                    ecosystem="PyPI",
                 ))
     return deps
 
-def parse_package_json(file_path: str) -> list[DependencyInfo]:
+def parse_package_json(file_path: str, rel_path: str) -> list[DependencyInfo]:
     import json
     deps = []
     try:
@@ -121,7 +123,8 @@ def parse_package_json(file_path: str) -> list[DependencyInfo]:
                     name=name,
                     current_version=version,
                     declared=version,
-                    file_path=os.path.basename(file_path)
+                    file_path=rel_path,
+                    ecosystem="npm",
                 ))
     except Exception:
         pass
@@ -137,32 +140,55 @@ def _mark_outdated(dep: DependencyInfo, latest: str):
         dep.is_outdated = True
 
 REGISTRY_LOOKUPS = {
-    "requirements.txt": get_pypi_info,
-    "package.json": get_npm_info,
+    "PyPI": get_pypi_info,
+    "npm": get_npm_info,
 }
 
-def _lookup(dep: DependencyInfo) -> DependencyInfo:
-    latest, dep.source_repo = REGISTRY_LOOKUPS[dep.file_path](dep.name)
-    if latest:
-        _mark_outdated(dep, latest)
-    return dep
+# Folders that never hold the project's own manifests
+SKIP_DIRS = {".git", "node_modules", "venv", ".venv", "env", "__pycache__", "dist", "build", ".next", "site-packages", "vendor", ".tox"}
+MAX_MANIFEST_DEPTH = 4
+MAX_MANIFESTS = 25
+
+def _manifest_parser(filename: str):
+    if filename == "package.json":
+        return parse_package_json
+    if filename == "pyproject.toml":
+        return parse_pyproject
+    if filename.startswith("requirements") and filename.endswith(".txt"):
+        return parse_requirements_txt
+    return None
+
+def find_manifests(repo_dir: str) -> list[str]:
+    """Paths (relative to the repo root) of every supported manifest, root first."""
+    found = []
+    for root, dirs, files in os.walk(repo_dir):
+        depth = os.path.relpath(root, repo_dir).count(os.sep) + (root != repo_dir)
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith(".") and depth < MAX_MANIFEST_DEPTH)
+        for filename in sorted(files):
+            if _manifest_parser(filename):
+                found.append(os.path.relpath(os.path.join(root, filename), repo_dir))
+    found.sort(key=lambda path: (path.count(os.sep), path))
+    return found[:MAX_MANIFESTS]
 
 def find_dependencies(repo_dir: str) -> list[DependencyInfo]:
     deps = []
-
-    # Check for requirements.txt
-    req_file = os.path.join(repo_dir, "requirements.txt")
-    if os.path.exists(req_file):
-        deps += parse_requirements_txt(req_file)
-
-    # Check for package.json
-    pkg_file = os.path.join(repo_dir, "package.json")
-    if os.path.exists(pkg_file):
-        deps += parse_package_json(pkg_file)
-
+    for rel_path in find_manifests(repo_dir):
+        parser = _manifest_parser(os.path.basename(rel_path))
+        deps += parser(os.path.join(repo_dir, rel_path), rel_path)
     return deps
 
 def lookup_latest_versions(dependencies: list[DependencyInfo]):
+    # The same package can appear in several manifests, so look each one up once
+    keys = sorted({(dep.ecosystem, dep.name.lower()) for dep in dependencies})
+    def lookup(key):
+        ecosystem, name = key
+        return key, REGISTRY_LOOKUPS[ecosystem](name)
+
     # Registry lookups are network-bound, so run them in parallel
     with ThreadPoolExecutor(max_workers=10) as pool:
-        list(pool.map(_lookup, dependencies))
+        results = dict(pool.map(lookup, keys))
+
+    for dep in dependencies:
+        latest, dep.source_repo = results[(dep.ecosystem, dep.name.lower())]
+        if latest:
+            _mark_outdated(dep, latest)

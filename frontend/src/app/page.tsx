@@ -7,7 +7,7 @@ import { PackageList } from "@/components/PackageList";
 import { ReviewDrawer } from "@/components/ReviewDrawer";
 import { Icon, Spinner } from "@/components/ui";
 import { createPullRequest, streamAnalysis } from "@/lib/api";
-import { RISK_LEVELS, isUpgrade, repoName, updateType, type UpdateType } from "@/lib/plan";
+import { RISK_LEVELS, depKey, isUpgrade, itemKey, repoName, updateType, type UpdateType } from "@/lib/plan";
 import type { AnalyzeResult, StageId, StageState, UpgradeResult } from "@/lib/types";
 
 const EXAMPLE_REPOS = ["https://github.com/expressjs/express", "https://github.com/miguelgrinberg/microblog"];
@@ -140,7 +140,7 @@ export default function Home() {
       setElapsed(Math.floor((Date.now() - now) / 1000));
       setMode("done");
       setResult(data);
-      setSelected(Object.fromEntries(data.upgrade_plan.map((item) => [item.dependency, isUpgrade(item) && item.recommended])));
+      setSelected(Object.fromEntries(data.upgrade_plan.map((item) => [itemKey(item), isUpgrade(item) && item.recommended])));
       setTab(data.upgrade_plan.some((item) => item.security_fix) ? "vulnerable" : "upgrades");
 
       const scan: RecentScan = {
@@ -165,10 +165,10 @@ export default function Home() {
   };
 
   const plan = useMemo(() => result?.upgrade_plan ?? [], [result]);
-  const dependencies = useMemo(() => new Map(result?.dependencies.map((dep) => [dep.name, dep]) ?? []), [result]);
+  const dependencies = useMemo(() => new Map(result?.dependencies.map((dep) => [depKey(dep), dep]) ?? []), [result]);
   const upgrades = useMemo(() => plan.filter(isUpgrade), [plan]);
   const vulnerable = useMemo(() => plan.filter((item) => item.vulnerabilities.length > 0), [plan]);
-  const selectedItems = upgrades.filter((item) => selected[item.dependency]);
+  const selectedItems = upgrades.filter((item) => selected[itemKey(item)]);
 
   const riskCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -191,7 +191,7 @@ export default function Home() {
     return base.filter((item) => {
       const risk = (RISK_LEVELS as readonly string[]).includes(item.risk_level) ? item.risk_level : "Unknown";
       return (
-        (!q || item.dependency.toLowerCase().includes(q)) &&
+        (!q || item.dependency.toLowerCase().includes(q) || item.file_path.toLowerCase().includes(q)) &&
         (!riskFilter || (isUpgrade(item) && risk === riskFilter)) &&
         (!typeFilter || (isUpgrade(item) && updateType(item) === typeFilter))
       );
@@ -269,7 +269,8 @@ export default function Home() {
               </h1>
               <p className="mt-4 max-w-xl text-lg leading-relaxed text-muted">
                 Nexus checks every dependency for known vulnerabilities, reads the release notes, finds where your code
-                uses it, and opens a pull request with the upgrades you approve.
+                uses it, and opens a pull request with the upgrades you approve. Works with requirements files,
+                pyproject.toml and package.json, anywhere in the repo.
               </p>
 
               <form onSubmit={handleAnalyze} className="mt-8 max-w-xl">
@@ -415,7 +416,7 @@ export default function Home() {
 
             {plan.length === 0 ? (
               <p className="rounded-xl border border-line px-5 py-12 text-center text-muted">
-                No <code className="font-mono text-sm">requirements.txt</code> or <code className="font-mono text-sm">package.json</code> found at the root of this repository.
+                No <code className="font-mono text-sm">requirements.txt</code>, <code className="font-mono text-sm">pyproject.toml</code> or <code className="font-mono text-sm">package.json</code> found in this repository.
               </p>
             ) : (
               <PackageList
@@ -436,7 +437,7 @@ export default function Home() {
                 onQuery={setQuery}
                 onSelect={(name, checked) => setSelected((prev) => ({ ...prev, [name]: checked }))}
                 onToggle={(name) => setExpanded((prev) => ({ ...prev, [name]: !prev[name] }))}
-                onSelectRecommended={() => setSelected(Object.fromEntries(upgrades.map((item) => [item.dependency, item.recommended])))}
+                onSelectRecommended={() => setSelected(Object.fromEntries(upgrades.map((item) => [itemKey(item), item.recommended])))}
                 onClear={() => setSelected({})}
               />
             )}

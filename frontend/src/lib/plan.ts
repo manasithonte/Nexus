@@ -6,6 +6,15 @@ export const RISK_LEVELS = ["High", "Medium", "Low", "Unknown"] as const;
 
 export const SEVERITY_ORDER = ["CRITICAL", "HIGH", "MODERATE", "MEDIUM", "LOW"];
 
+/** Unique per manifest, since the same package can be listed in several files. */
+export function itemKey(item: Pick<PlanItem, "file_path" | "dependency">) {
+  return `${item.file_path}::${item.dependency}`;
+}
+
+export function depKey(dep: Pick<Dependency, "file_path" | "name">) {
+  return `${dep.file_path}::${dep.name}`;
+}
+
 export function isUpgrade(item: PlanItem) {
   return item.from_version !== item.to_version;
 }
@@ -37,19 +46,49 @@ export function updateType(item: PlanItem): UpdateType {
 export type DiffLine = { kind: "removed" | "added"; text: string };
 export type FileDiff = { file: string; lines: DiffLine[] };
 
+const PIN_OPERATORS = ["===", "==", "~=", ">="];
+
+/** Mirrors updated_spec in backend/core/pyproject.py. */
+function updatedPyprojectSpec(declared: string, toVersion: string, section: string) {
+  const spec = declared.trim();
+  if (section === "poetry") {
+    const prefix = spec.match(/^(\^|~=|~|>=|==)?/)?.[1] ?? "";
+    return `${prefix}${toVersion}`;
+  }
+  if (!spec.includes(",")) {
+    const op = PIN_OPERATORS.find((operator) => spec.startsWith(operator));
+    if (op) return `${op}${toVersion}`;
+  }
+  return `>=${toVersion}`;
+}
+
+function basename(path: string) {
+  return path.split("/").pop() ?? path;
+}
+
 /** Mirrors how the backend rewrites each manifest, so the preview matches the pull request. */
 export function buildDiff(items: PlanItem[], dependencies: Dependency[]): FileDiff[] {
-  const byName = new Map(dependencies.map((dep) => [dep.name, dep]));
+  const byKey = new Map(dependencies.map((dep) => [depKey(dep), dep]));
   const files = new Map<string, DiffLine[]>();
 
   for (const item of items) {
-    const dep = byName.get(item.dependency);
+    const dep = byKey.get(itemKey(item));
     if (!dep) continue;
     const lines = files.get(dep.file_path) ?? [];
-    if (dep.file_path === "package.json") {
+    const file = basename(dep.file_path);
+    if (file === "package.json") {
       const prefix = dep.declared.startsWith("^") ? "^" : dep.declared.startsWith("~") ? "~" : "";
       lines.push({ kind: "removed", text: `    "${dep.name}": "${dep.declared}",` });
       lines.push({ kind: "added", text: `    "${dep.name}": "${prefix}${item.to_version}",` });
+    } else if (file === "pyproject.toml") {
+      const next = updatedPyprojectSpec(dep.declared, item.to_version, dep.section);
+      if (dep.section === "poetry") {
+        lines.push({ kind: "removed", text: `${dep.name} = "${dep.declared}"` });
+        lines.push({ kind: "added", text: `${dep.name} = "${next}"` });
+      } else {
+        lines.push({ kind: "removed", text: `    "${dep.name}${dep.declared}",` });
+        lines.push({ kind: "added", text: `    "${dep.name}${next}",` });
+      }
     } else {
       lines.push({ kind: "removed", text: `${dep.name}${dep.declared}` });
       lines.push({ kind: "added", text: `${item.dependency}==${item.to_version}` });

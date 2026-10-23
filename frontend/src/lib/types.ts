@@ -19,6 +19,8 @@ export type Dependency = {
   latest_version: string | null;
   is_outdated: boolean;
   file_path: string;
+  ecosystem: string;
+  section: string;
   source_repo: string | null;
   vulnerabilities: Vulnerability[];
   usages: UsageLocation[];
@@ -26,6 +28,7 @@ export type Dependency = {
 
 export type PlanItem = {
   dependency: string;
+  file_path: string;
   from_version: string;
   to_version: string;
   breaking_changes: string;

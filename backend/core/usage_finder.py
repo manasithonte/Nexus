@@ -43,25 +43,32 @@ def _js_pattern(package: str) -> re.Pattern:
     return re.compile(rf"""(?:from\s+|require\(\s*|import\(\s*|import\s+)['"]{name}(?:/[^'"]*)?['"]""")
 
 def find_usages(repo_dir: str, dependencies: list[DependencyInfo]):
-    """Attaches the import sites of each dependency in the repo's source files."""
+    """Attaches the import sites of each dependency, searching the folder that holds its manifest."""
     patterns = []
     for dep in dependencies:
-        if dep.file_path == "requirements.txt":
-            patterns.append((dep, _python_pattern(dep.name), PYTHON_EXTS))
-        elif dep.file_path == "package.json":
-            patterns.append((dep, _js_pattern(dep.name), JS_EXTS))
+        # A package from backend/requirements.txt is only matched against code under backend/
+        scope = os.path.dirname(dep.file_path)
+        scope = scope + os.sep if scope else ""
+        if dep.ecosystem == "PyPI":
+            patterns.append((dep, _python_pattern(dep.name), PYTHON_EXTS, scope))
+        elif dep.ecosystem == "npm":
+            patterns.append((dep, _js_pattern(dep.name), JS_EXTS, scope))
     if not patterns:
         return
 
     for root, dirs, files in os.walk(repo_dir):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for filename in files:
+            path = os.path.join(root, filename)
+            rel_path = os.path.relpath(path, repo_dir)
             ext = os.path.splitext(filename)[1]
-            candidates = [(dep, pattern) for dep, pattern, exts in patterns if ext in exts]
+            candidates = [
+                (dep, pattern) for dep, pattern, exts, scope in patterns
+                if ext in exts and rel_path.startswith(scope)
+            ]
             if not candidates:
                 continue
 
-            path = os.path.join(root, filename)
             try:
                 if os.path.getsize(path) > MAX_FILE_BYTES:
                     continue
@@ -70,7 +77,6 @@ def find_usages(repo_dir: str, dependencies: list[DependencyInfo]):
             except OSError:
                 continue
 
-            rel_path = os.path.relpath(path, repo_dir)
             for line_no, line in enumerate(lines, start=1):
                 for dep, pattern in candidates:
                     if len(dep.usages) < MAX_USAGES_PER_DEP and pattern.search(line):

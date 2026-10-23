@@ -63,7 +63,8 @@ def run_analysis(request: AnalyzeRequest):
         yield stage("manifests")
         dependencies = find_dependencies(repo_dir)
         files = sorted({dep.file_path for dep in dependencies})
-        yield stage("manifests", "done", f"{_plural(len(dependencies), 'package')} in {', '.join(files)}" if files else "No requirements.txt or package.json found")
+        where = ", ".join(files) if len(files) <= 3 else _plural(len(files), "file")
+        yield stage("manifests", "done", f"{_plural(len(dependencies), 'package')} in {where}" if files else "No requirements, pyproject.toml or package.json files found")
 
         yield stage("usage")
         find_usages(repo_dir, dependencies)

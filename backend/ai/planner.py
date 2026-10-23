@@ -66,6 +66,7 @@ Rules:
 
 Respond ONLY with a JSON array of objects, containing these exact keys for EVERY dependency:
 - "dependency": string (name of the package)
+- "file": string (the manifest path shown in parentheses after the name)
 - "from_version": string (current version)
 - "to_version": string (latest version)
 - "breaking_changes": string (description of potential breaking changes, or 'None' if up-to-date)
@@ -94,17 +95,17 @@ Example:
 BATCH_SIZE = 8
 MAX_PARALLEL_CALLS = 4
 
-def _ask_ai(batch: list[DependencyInfo], release_notes: dict) -> dict:
+def _ask_ai(batch: list[DependencyInfo], release_notes: dict) -> list:
     deps_text = "\n\n".join(_describe_dependency(dep, release_notes.get(dep.name)) for dep in batch)
     try:
         response = (PROMPT | llm).invoke({"deps_text": deps_text})
 
         content = response.content
         clean_content = content.replace("```json", "").replace("```", "").strip()
-        return {str(item.get("dependency", "")).lower(): item for item in json.loads(clean_content)}
+        return json.loads(clean_content)
     except Exception as e:
         print(f"Error generating plan for {[dep.name for dep in batch]}: {e}")
-        return {}
+        return []
 
 def generate_upgrade_plan(
     dependencies: list[DependencyInfo],
@@ -119,11 +120,15 @@ def generate_upgrade_plan(
     # Up-to-date packages need no AI review
     outdated = [dep for dep in dependencies if dep.is_outdated]
     batches = [outdated[i:i + BATCH_SIZE] for i in range(0, len(outdated), BATCH_SIZE)]
-    ai_items = {}
+    # Keyed by (manifest, name), since the same package can appear in several manifests
+    ai_items, ai_items_by_name = {}, {}
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_CALLS) as pool:
         futures = [pool.submit(_ask_ai, batch, release_notes) for batch in batches]
         for done, future in enumerate(as_completed(futures), start=1):
-            ai_items.update(future.result())
+            for item in future.result():
+                name = str(item.get("dependency", "")).lower()
+                ai_items[(str(item.get("file", "")), name)] = item
+                ai_items_by_name.setdefault(name, item)
             if on_progress:
                 on_progress(done, len(batches))
 
@@ -131,7 +136,7 @@ def generate_upgrade_plan(
     for dep in dependencies:
         notes = release_notes.get(dep.name)
         real_locations = {f"{u.file}:{u.line}" for u in dep.usages}
-        ai_item = ai_items.get(dep.name.lower())
+        ai_item = ai_items.get((dep.file_path, dep.name.lower())) or ai_items_by_name.get(dep.name.lower())
         # Never target a version below the current one (npm "latest" can lag behind a newer major)
         to_version = (dep.latest_version or dep.current_version) if dep.is_outdated else dep.current_version
 
@@ -169,6 +174,7 @@ def generate_upgrade_plan(
             )
 
         # Security data and note sources come from the scanners, not the model
+        item.file_path = dep.file_path
         item.vulnerabilities = dep.vulnerabilities
         item.notes_source = notes[1] if notes else None
         item.security_fix = _is_security_fix(item)

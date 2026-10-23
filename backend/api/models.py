@@ -23,13 +23,16 @@ class DependencyInfo(BaseModel):
     declared: str = ""  # the spec exactly as written, e.g. ">=2.20.0" or "^4.17.15"
     latest_version: Optional[str] = None
     is_outdated: bool = False
-    file_path: str
+    file_path: str  # manifest path relative to the repo root, e.g. "backend/requirements.txt"
+    ecosystem: str = ""  # "PyPI" or "npm"
+    section: str = ""  # for pyproject.toml: "project" (PEP 621 / dependency groups) or "poetry"
     source_repo: Optional[str] = None  # "owner/repo" on GitHub, if the registry links one
     vulnerabilities: List[Vulnerability] = []
     usages: List[UsageLocation] = []
 
 class UpgradePlanItem(BaseModel):
     dependency: str
+    file_path: str = ""  # which manifest to update; empty means the repo root files
     from_version: str
     to_version: str
     breaking_changes: str

@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useState } from "react";
-import { isUpgrade, severityRank, updateType, type UpdateType } from "@/lib/plan";
+import { isUpgrade, itemKey, severityRank, updateType, type UpdateType } from "@/lib/plan";
 import type { Dependency, PlanItem } from "@/lib/types";
 import type { Tab } from "./Overview";
 import { Badge, Icon, Kbd, RISK_TONE, RichText } from "./ui";
@@ -100,6 +100,7 @@ function PackageRow({
   index,
   item,
   dep,
+  showFile,
   selected,
   expanded,
   onSelect,
@@ -108,6 +109,7 @@ function PackageRow({
   index: number;
   item: PlanItem;
   dep?: Dependency;
+  showFile: boolean;
   selected: boolean;
   expanded: boolean;
   onSelect: (checked: boolean) => void;
@@ -144,6 +146,7 @@ function PackageRow({
             <span className="flex items-center gap-2">
               <span className="truncate font-medium group-enabled:group-hover:text-accent">{item.dependency}</span>
               {upgrade && type !== "other" && <span className={`text-[11px] font-medium ${TYPE_CLASS[type]}`}>{type}</span>}
+              {showFile && <span className="hidden truncate font-mono text-[11px] text-muted sm:inline">{item.file_path}</span>}
             </span>
             <span className="mt-0.5 block font-mono text-xs text-muted">
               {upgrade ? (
@@ -201,6 +204,8 @@ export const PackageList = forwardRef<
   }
 >(function PackageList(props, searchRef) {
   const { items, dependencies, tab, tabs, query, filters, selected, expanded } = props;
+  // Only label rows with their manifest when the repo has more than one
+  const showFiles = new Set([...dependencies.values()].map((dep) => dep.file_path)).size > 1;
 
   return (
     <div className="rounded-xl border border-line bg-bg">
@@ -264,14 +269,15 @@ export const PackageList = forwardRef<
         <ul className="divide-y divide-line">
           {items.map((item, index) => (
             <PackageRow
-              key={item.dependency}
+              key={itemKey(item)}
               index={index}
               item={item}
-              dep={dependencies.get(item.dependency)}
-              selected={!!selected[item.dependency]}
-              expanded={!!expanded[item.dependency]}
-              onSelect={(checked) => props.onSelect(item.dependency, checked)}
-              onToggle={() => props.onToggle(item.dependency)}
+              dep={dependencies.get(itemKey(item))}
+              showFile={showFiles}
+              selected={!!selected[itemKey(item)]}
+              expanded={!!expanded[itemKey(item)]}
+              onSelect={(checked) => props.onSelect(itemKey(item), checked)}
+              onToggle={() => props.onToggle(itemKey(item))}
             />
           ))}
         </ul>

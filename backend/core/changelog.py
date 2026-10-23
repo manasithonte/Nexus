@@ -95,7 +95,11 @@ def fetch_release_notes(dependencies: list[DependencyInfo], github_token: str = 
     targets =[dep for dep in dependencies if dep.is_outdated and dep.source_repo]
     # Vulnerable packages first, then ones the code actually imports
     targets.sort(key=lambda dep: (not dep.vulnerabilities, not dep.usages))
-    targets = targets[:MAX_DEPS]
+    # The same package can be listed in several manifests; fetch its notes once
+    unique = {}
+    for dep in targets:
+        unique.setdefault(dep.name, dep)
+    targets = list(unique.values())[:MAX_DEPS]
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = pool.map(lambda dep: _fetch_notes(dep, github_token), targets)

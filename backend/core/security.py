@@ -6,11 +6,6 @@ from core.versions import clean_version, parse_version
 OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
 OSV_VULN_URL = "https://api.osv.dev/v1/vulns/{}"
 
-ECOSYSTEMS = {
-    "requirements.txt": "PyPI",
-    "package.json": "npm",
-}
-
 def _fixed_in(vuln: dict, dep: DependencyInfo, ecosystem: str) -> str:
     """Finds the lowest fixed version above the dependency's current version."""
     current = parse_version(dep.current_version)
@@ -42,14 +37,14 @@ def check_vulnerabilities(dependencies: list[DependencyInfo]):
     """
     queryable = [
         dep for dep in dependencies
-        if dep.file_path in ECOSYSTEMS and parse_version(dep.current_version)
+        if dep.ecosystem and parse_version(dep.current_version)
     ]
     if not queryable:
         return
 
     queries = [
         {
-            "package": {"name": dep.name, "ecosystem": ECOSYSTEMS[dep.file_path]},
+            "package": {"name": dep.name, "ecosystem": dep.ecosystem},
             "version": clean_version(dep.current_version),
         }
         for dep in queryable
@@ -69,13 +64,12 @@ def check_vulnerabilities(dependencies: list[DependencyInfo]):
         details = dict(zip(unique_ids, pool.map(_fetch_vuln, unique_ids)))
 
     for dep, ids in zip(queryable, ids_per_dep):
-        ecosystem = ECOSYSTEMS[dep.file_path]
         for vuln_id in ids:
             vuln = details[vuln_id]
             dep.vulnerabilities.append(Vulnerability(
                 id=vuln_id,
                 summary=vuln.get("summary") or (vuln.get("details") or "")[:200] or "No summary available",
                 severity=(vuln.get("database_specific") or {}).get("severity"),
-                fixed_in=_fixed_in(vuln, dep, ecosystem),
+                fixed_in=_fixed_in(vuln, dep, dep.ecosystem),
                 url=f"https://osv.dev/vulnerability/{vuln_id}",
             ))
