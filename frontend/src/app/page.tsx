@@ -260,17 +260,22 @@ export default function Home() {
           <div className="hero-grid pointer-events-none absolute inset-0" aria-hidden="true" />
           <div className="relative mx-auto grid max-w-6xl gap-10 px-4 pt-14 pb-12 sm:px-6 lg:grid-cols-[1fr_400px] lg:gap-14 lg:pt-20">
             <div className="animate-fade-in-up">
-              <span className="inline-flex items-center gap-2 rounded-full border border-line bg-bg px-3 py-1 text-xs text-muted">
+              <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-line bg-bg px-3 py-1 text-xs text-muted">
                 <span className="size-1.5 rounded-full bg-accent" />
-                For Python and Node.js projects on GitHub
+                {["requirements.txt", "pyproject.toml", "package.json"].map((file, i) => (
+                  <span key={file} className="flex items-center gap-2">
+                    {i > 0 && <span aria-hidden="true">·</span>}
+                    <span className="font-mono text-[11px] text-fg/80">{file}</span>
+                  </span>
+                ))}
+                <span className="hidden sm:inline">· any folder in a GitHub repo</span>
               </span>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
                 Upgrade dependencies without breaking your code.
               </h1>
               <p className="mt-4 max-w-xl text-lg leading-relaxed text-muted">
                 Nexus checks every dependency for known vulnerabilities, reads the release notes, finds where your code
-                uses it, and opens a pull request with the upgrades you approve. Works with requirements files,
-                pyproject.toml and package.json, anywhere in the repo.
+                uses it, and opens a pull request with the upgrades you approve.
               </p>
 
               <form onSubmit={handleAnalyze} className="mt-8 max-w-xl">
